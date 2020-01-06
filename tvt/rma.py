@@ -27,7 +27,7 @@ from six.moves import range
 from six.moves import zip
 import sonnet as snt
 import tensorflow as tf
-import trfl
+import trfl # i can not install it, 20200106
 
 from tvt import losses
 from tvt import memory as memory_module
