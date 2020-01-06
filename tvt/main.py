@@ -87,8 +87,8 @@ flags.DEFINE_boolean('pycolab_crop', True,
 
 def main(_):
 
-  batch_size = FLAGS.batch_size
-  env_builder = pycolab_env.PycolabEnvironment
+  batch_size = FLAGS.batch_size #应该有不止一个环境和智能体同时进行训练，默认16个
+  env_builder = pycolab_env.PycolabEnvironment #自己构建的一个环境集合，有两个游戏 key_to_door 和active_visual_match，
   env_kwargs = {
       'game': FLAGS.pycolab_game,
       'num_apples': FLAGS.pycolab_num_apples,
@@ -98,8 +98,8 @@ def main(_):
       'final_reward': FLAGS.pycolab_final_reward,
       'crop': FLAGS.pycolab_crop
   }
-  env = batch_env.BatchEnv(batch_size, env_builder, **env_kwargs)
-  ep_length = env.episode_length
+  env = batch_env.BatchEnv(batch_size, env_builder, **env_kwargs)#似乎对环境也进行了打包
+  ep_length = env.episode_length #没找到在哪儿初始化的
 
   agent = rma.Agent(batch_size=batch_size,
                     num_actions=env.num_actions,

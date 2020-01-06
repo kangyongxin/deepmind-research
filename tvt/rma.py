@@ -374,6 +374,7 @@ class Agent(snt.AbstractModule):
 
   `latents` here refers to a purely deterministic encoding of the inputs, rather
   than VAE-like latents in e.g. the MERLIN agent.
+  这里的latents指的是输入的纯确定性编码。
   """
 
   def __init__(self,
@@ -474,6 +475,8 @@ class Agent(snt.AbstractModule):
         image=image_recon,
         last_reward=reward_recon,
         last_action=action_recon)
+    #Observation = collections.namedtuple('Observation', ['image', 'last_action', 'last_reward'])
+
 
     return recons
 
