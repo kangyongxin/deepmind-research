@@ -110,16 +110,18 @@ class ImageEncoderDecoder(snt.AbstractModule):
           strides=(1, 1),
           paddings=('SAME',))
       self._post_convnet_layer = snt.Linear(image_code_size, name='final_layer')
-
+    print("ImageEncoderDecoder init")
   @snt.reuse_variables
   def encode(self, image):
     """Encode the image observation."""
+
     convnet_output = self._convnet(image)
 
     # Store unflattened convnet output shape for use in decoder.
     self._convnet_output_shape = convnet_output.shape[1:]
 
     # Flatten convnet outputs and pass through final layer to get image code.
+    print("Encode the image observation.")
     return self._post_convnet_layer(snt.BatchFlatten()(convnet_output))
 
   @snt.reuse_variables
@@ -134,6 +136,7 @@ class ImageEncoderDecoder(snt.AbstractModule):
     transpose_convnet_in_flat = tf.nn.relu(transpose_convnet_in_flat)
     transpose_convnet_in = snt.BatchReshape(
         self._convnet_output_shape.as_list())(transpose_convnet_in_flat)
+    print("Decode the image observation from a latent code.")
     return self._convnet.transpose(None)(transpose_convnet_in)
 
   def _build(self, *args):  # Unused. Use encode/decode instead.
@@ -207,7 +210,7 @@ class Policy(snt.AbstractModule):
         policy=policy,
         action=action,
         baseline=baseline)
-
+    print("Policy INIT")
     return outputs
 
 
@@ -303,13 +306,19 @@ class _RMACore(snt.RNNCore):
         read_info=read_info_size)
 
   def _build(self, inputs, h_prev):
+    print("RMA RNN Core init")
     features = inputs
-
+    print("feature",features.shape)
     z_net_inputs = [features, h_prev.controller_outputs]
+    print("h_prev.controller_outputs",h_prev.controller_outputs)
+    
     if self._with_memory:
+      print("h_prev.mem_reads",h_prev.mem_reads)
       z_net_inputs.append(h_prev.mem_reads)
     z_net_inputs_concat = tf.concat(z_net_inputs, axis=1)
+    print("z_net_input_concat",z_net_inputs_concat)
     z = self._z_encoder_mlp(z_net_inputs_concat)
+    print("z",z.shape)
 
     controller_out, h_controller = self._controller(z, h_prev.h_controller)
 
@@ -339,7 +348,9 @@ class _RMACore(snt.RNNCore):
                         mem_reads=mem_reads,
                         h_mem_writer=h_mem_writer,
                         **h_next._asdict())
-
+    
+    #print("core_outputs",core_outputs.shape)
+    #print("h_next",h_next.shape)
     return core_outputs, h_next
 
   def initial_state(self, batch_size):
@@ -358,6 +369,7 @@ class _RMACore(snt.RNNCore):
                        mem_reads=mem_reads,
                        h_mem_writer=h_mem_writer,
                        **state._asdict())
+    print("Use initial state for RNN modules, otherwise use zero state")
     return state
 
   @property
@@ -418,6 +430,7 @@ class Agent(snt.AbstractModule):
       self._core = _RMACore(
           num_actions=self._num_actions,
           with_memory=with_memory)
+    print("agent init")
 
   def initial_state(self, batch_size):
     with tf.name_scope(self._name + '/initial_state'):
@@ -436,7 +449,7 @@ class Agent(snt.AbstractModule):
       # For some envs, in the first timestep the last_reward can be None.
       batch_size = observation.shape[0]
       last_reward = tf.zeros((batch_size,), dtype=tf.float32)
-
+    print("obervations prepared")
     return Observation(
         image=image,
         last_action=last_action,
@@ -456,7 +469,7 @@ class Agent(snt.AbstractModule):
     reward_code = tf.expand_dims(inputs.last_reward, -1)
 
     features = tf.concat([obs_code, action_code, reward_code], axis=1)
-
+    print("encode 3 kinds of inputs")
     return inputs, features
 
   @snt.reuse_variables
@@ -477,7 +490,7 @@ class Agent(snt.AbstractModule):
         last_action=action_recon)
     #Observation = collections.namedtuple('Observation', ['image', 'last_action', 'last_reward'])
 
-
+    print("decode state,return recons")
     return recons
 
   def step(self, reward, observation, prev_state):
@@ -496,6 +509,7 @@ class Agent(snt.AbstractModule):
     agent_state = AgentState(
         core_state=next_core_state,
         prev_action=action)
+    print("step for agent ")
     return step_output, agent_state
 
   @snt.reuse_variables
@@ -505,7 +519,7 @@ class Agent(snt.AbstractModule):
     all_actions = tf.concat([dummy_zeroth_step_actions, actions], axis=0)
     inputs, features = snt.BatchApply(self._encode)(
         observations, rewards, all_actions)
-
+    print("Compute the loss")
     rewards = rewards[1:]  # Zeroth step reward not correlated to actions.
     if additional_rewards is not None:
       # Additional rewards are not passed to the encoder (above) in order to be
@@ -515,13 +529,13 @@ class Agent(snt.AbstractModule):
       rewards += additional_rewards
 
     initial_state = self._core.initial_state(self._batch_size)
-
+    print("initial state in core ")
     rnn_inputs = features
     core_outputs = unroll(self._core, initial_state, rnn_inputs)
-
+    print("after unroll")
     # Remove final timestep of outputs.
     core_outputs = nest.map_structure(lambda t: t[:-1], core_outputs)
-
+    print("map_structrue")
     if self._with_reconstructions:
       recons = snt.BatchApply(self._decode)(core_outputs.z)
       recon_targets = nest.map_structure(lambda t: t[:-1], inputs)
@@ -534,7 +548,7 @@ class Agent(snt.AbstractModule):
     else:
       recon_loss = tf.constant(0.0)
       recon_logged_values = dict()
-
+    print("after reconstruction losses")
     if core_outputs.read_info is not tuple():
       read_reg_loss, read_reg_logged_values = (
           losses.read_regularization_loss(
@@ -547,7 +561,7 @@ class Agent(snt.AbstractModule):
     else:
       read_reg_loss = tf.constant(0.0)
       read_reg_logged_values = dict()
-
+    print("read reg logged value")
     # Bootstrap value is at end of episode so is zero.
     bootstrap_value = tf.zeros(shape=(self._batch_size,), dtype=tf.float32)
 
@@ -566,7 +580,7 @@ class Agent(snt.AbstractModule):
         name='SequenceA2CLoss')
 
     a2c_loss = tf.reduce_mean(a2c_loss)  # Average over batch.
-
+    print("get a2c loss")
     total_loss = a2c_loss + recon_loss + read_reg_loss
 
     a2c_loss_logged_values = dict(

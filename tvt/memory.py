@@ -28,7 +28,8 @@ import tensorflow as tf
 ReadInformation = collections.namedtuple(
     'ReadInformation', ('weights', 'indices', 'keys', 'strengths'))
 
-
+global kkk
+kkk=0
 class MemoryWriter(snt.RNNCore):
   """Memory Writer Module."""
 
@@ -65,13 +66,13 @@ class MemoryWriter(snt.RNNCore):
     prev_write_counter = state
     new_row_value = z
 
-    # Find the index to insert the next row into.
+    # Find the index to insert the next row into. #放在什么地方
     num_mem_rows = self._mem_shape[0]
     write_index = tf.cast(prev_write_counter, dtype=tf.int32) % num_mem_rows
     one_hot_row = tf.one_hot(write_index, num_mem_rows)
     write_counter = prev_write_counter + 1
 
-    # Insert state variable to new row.
+    # Insert state variable to new row.#这里默认是要放到最后一个吗？
     # First you need to size it up to the full size.
     insert_new_row = lambda mem, o_hot, z: mem - (o_hot * mem) + (o_hot * z)
     new_mem = insert_new_row(mem_state,
@@ -79,7 +80,7 @@ class MemoryWriter(snt.RNNCore):
                              tf.expand_dims(new_row_value, axis=-2))
 
     new_state = write_counter
-
+    print("Memory Writer Module.")
     return new_mem, new_state
 
   @property
@@ -107,39 +108,51 @@ class MemoryReader(snt.AbstractModule):
     Args:
       memory_word_size: The dimension of the 1-D read keys this memory reader
         should produce. Each row of the memory is of length `memory_word_size`.
+        每一行的长度
       num_read_heads: The number of reads to perform.
+        读取的条数
       top_k: Softmax and summation when reading is only over top k most similar
         entries in memory. top_k=0 (default) means dense reads, i.e. no top_k.
+        k个最相近的
       memory_size: Number of rows in memory.
+        行数
       name: The name for this Sonnet module.
     """
     super(MemoryReader, self).__init__(name=name)
     self._memory_word_size = memory_word_size
     self._num_read_heads = num_read_heads
     self._top_k = top_k
+    
 
     # This is not an RNNCore but it is useful to expose the output size.
-    self._output_size = num_read_heads * memory_word_size
+    self._output_size = num_read_heads * memory_word_size# 
 
-    num_read_weights = top_k if top_k > 0 else memory_size
+    num_read_weights = top_k if top_k > 0 else memory_size #行数，或者 topk 这个topk到底干啥的？
     self._read_info_size = ReadInformation(
         weights=tf.TensorShape([num_read_heads, num_read_weights]),
         indices=tf.TensorShape([num_read_heads, num_read_weights]),
         keys=tf.TensorShape([num_read_heads, memory_word_size]),
         strengths=tf.TensorShape([num_read_heads]),
-    )
+    )#这里的weights，indies都是矩阵，可能是一种权重矩阵，行是我们要读取的条数，列是记忆的函数，每个元素ij是第i个要读取的信息在第j行数据上的权重
+    #记忆有300行，每行有27列，是个300*27的矩阵，那么我们要读取3条，用3*300的权重矩阵乘300*27的记忆，得到 3*27的结果 
+    #keys 就是上面得到的3*27的矩阵同维度，但是还不知道怎么算有啥用
+    #strengths和我们要读取的条目数相同，可能是一种值函数或者各条的贡献
+    #ReadInformation = collections.namedtuple('ReadInformation', ('weights', 'indices', 'keys', 'strengths'))
 
     with self._enter_variable_scope():
       # Transforms to value-based read for each read head.
+      print("memory_word_size",memory_word_size)
+      print("num_read_heads",num_read_heads)
       output_dim = (memory_word_size + 1) * num_read_heads
+      print("output_dim",output_dim)
       self._keys_and_read_strengths_generator = snt.Linear(output_dim)
-
+      #这是个线性函数，输入维度是 每条记忆的长度×查询记忆的条数
   def _build(self, inputs):
     """Looks up rows in memory.
 
     In the args list, we have the following conventions:
       B: batch size
-      M: number of slots in a row of the memory matrix
+      M: number of slots in a row of the memory matrix #slot指什么？
       R: number of rows in the memory matrix
       H: number of read heads in the memory controller
 
@@ -156,26 +169,39 @@ class MemoryReader(snt.AbstractModule):
     """
     # Assert input shapes are compatible and separate inputs.
     _assert_compatible_memory_reader_input(inputs)
-    read_inputs, mem_state = inputs
-
+    read_inputs, mem_state = inputs #由两部分构成
+    #print("read_inputs",read_inputs.shape)
+    #print("mem_state",mem_state.shape)
+    #几个要搞清楚的词：read weightings（算完cos之后的）;key;srengths（只是一个用来做加权的，但是没搞懂代表什么含义）;
     # Determine the read weightings for each key.
     flat_outputs = self._keys_and_read_strengths_generator(
         snt.BatchFlatten()(read_inputs))
-
-    # Separate the read_strengths from the rest of the weightings.
-    h = self._num_read_heads
-    flat_keys = flat_outputs[:, :-h]
-    read_strengths = tf.nn.softplus(flat_outputs[:, -h:])
-
+    #各条记忆之间做一个权重？？ read inputs
+    #print("flat_outputs",flat_outputs.shape)
+    # Separate the read_strengths from the rest of the weightings.#同一个batch中不同的记忆之间的权重
+    h = self._num_read_heads 
+    #print("h",h)
+    flat_keys = flat_outputs[:, :-h]#前h 列
+    #print("flat_keys",flat_keys)
+    read_strengths = tf.nn.softplus(flat_outputs[:, -h:])#后h 列
+    #print("read_strengths",read_strengths.shape)
     # Reshape the weights.
     read_shape = (self._num_read_heads, self._memory_word_size)
+    #print("read_shape",read_shape)
     read_keys = snt.BatchReshape(read_shape)(flat_keys)
-
+    #print("read_keys",read_keys.shape)
     # Read from memory.
+    #print("_top_k",self._top_k)
     memory_reads, read_weights, read_indices, read_strengths = (
         read_from_memory(read_keys, read_strengths, mem_state, self._top_k))
+    #print("memory_reads.shape",memory_reads.shape)
+    #print("read_weights",read_weights.shape)
+    #print("read_indices",read_indices.shape)
+    #print("read_strength",read_strengths.shape)
     concatenated_reads = snt.BatchFlatten()(memory_reads)
-
+    global kkk
+    kkk=kkk+1
+    print("----------",kkk)
     return concatenated_reads, ReadInformation(
         weights=read_weights,
         indices=read_indices,
@@ -190,10 +216,10 @@ class MemoryReader(snt.AbstractModule):
 
 def read_from_memory(read_keys, read_strengths, mem_state, top_k):
   """Function for cosine similarity content based reading from memory matrix.
-
+  基于余弦相似性内容的记忆矩阵读取
   In the args list, we have the following conventions:
     B: batch size
-    M: number of slots in a row of the memory matrix
+    M: number of slots in a row of the memory matrix#有可能是记忆矩阵的列数，咋算出来的？
     R: number of rows in the memory matrix
     H: number of read heads (of the controller or the policy)
     K: top_k if top_k>0
@@ -214,7 +240,7 @@ def read_from_memory(read_keys, read_strengths, mem_state, top_k):
                                              mem_state)
   batch_size = read_keys.shape[0]
   num_read_heads = read_keys.shape[1]
-
+  print("read_from_memory")
   with tf.name_scope('memory_reading'):
     # Scale such that all rows are L2-unit vectors, for memory and read query.
     scaled_read_keys = tf.math.l2_normalize(read_keys, axis=-1)  # [B, H, M]
@@ -224,6 +250,8 @@ def read_from_memory(read_keys, read_strengths, mem_state, top_k):
     # Find the cosine distance between each read head and each row of memory.
     cosine_distances = tf.matmul(
         scaled_read_keys, scaled_mem, transpose_b=True)  # [B, H, R]
+        #transpose_b: 如果为真, b则在进行乘法计算前进行转置。 [B, H, M]× [B, R, M]‘=【B H R】 H是要读取的数目，R是矩阵中有的行数
+
 
     # The rank must match cosine_distances for broadcasting to work.
     read_strengths = tf.expand_dims(read_strengths, axis=-1)  # [B, H, 1]
@@ -256,7 +284,7 @@ def read_from_memory(read_keys, read_strengths, mem_state, top_k):
       memory_reads = tf.reduce_sum(
           expanded_weights * topk_mem, axis=2)  # [B, H, M]
     else:
-      read_weights = tf.nn.softmax(weighted_distances, axis=-1)
+      read_weights = tf.nn.softmax(weighted_distances, axis=-1) #[B, H, R]
 
       num_rows_memory = mem_state.shape[1]
       all_indices = tf.range(num_rows_memory, dtype=tf.int32)
@@ -265,11 +293,11 @@ def read_from_memory(read_keys, read_strengths, mem_state, top_k):
 
       # This is the actual memory access.
       # Note that matmul automatically batch applies for us.
-      memory_reads = tf.matmul(read_weights, mem_state)
+      memory_reads = tf.matmul(read_weights, mem_state)#[B, H, R]×[B, R, M]=【B H M】M至始至终都没参与计算
 
     read_keys.shape.assert_is_compatible_with(memory_reads.shape)
 
-    read_strengths = tf.squeeze(read_strengths, axis=-1)  # [B, H, 1] -> [B, H]
+    read_strengths = tf.squeeze(read_strengths, axis=-1)  # [B, H, 1] -> [B, H]# 又变回来了
 
     return memory_reads, read_weights, read_indices, read_strengths
 

@@ -85,6 +85,11 @@ flags.DEFINE_boolean('pycolab_crop', True,
                      'Whether to crop observations or not.')
 
 
+flags.DEFINE_boolean('print_functionname', True,
+                     'Whether to print_functionname.')
+                     
+
+
 def main(_):
 
   batch_size = FLAGS.batch_size #应该有不止一个环境和智能体同时进行训练，默认16个
@@ -100,7 +105,9 @@ def main(_):
   }
   env = batch_env.BatchEnv(batch_size, env_builder, **env_kwargs)#似乎对环境也进行了打包
   ep_length = env.episode_length #没找到在哪儿初始化的
-
+  #在common.py中， 三个数的加和 DEFAULT_MAX_FRAMES_PER_PHASE = {  'explore': 15, 'distractor': 90, 'reward': 15}
+  if FLAGS.print_functionname:
+    print("ep_length",ep_length)
   agent = rma.Agent(batch_size=batch_size,
                     num_actions=env.num_actions,
                     observation_shape=env.observation_shape,
@@ -134,9 +141,13 @@ def main(_):
   tvt_rewards_ph = tf.placeholder(
       dtype=tf.float32, shape=(ep_length, batch_size), name='tvt_rewards')
 
+  if FLAGS.print_functionname:
+    print("before loss construction")
+
   loss, loss_logs = agent.loss(
       observations_ph, rewards_ph, actions_ph, tvt_rewards_ph)
-
+  if FLAGS.print_functionname:
+    print("after loss construction")
   optimizer = tf.train.AdamOptimizer(
       learning_rate=FLAGS.learning_rate,
       beta1=FLAGS.beta1,
@@ -157,7 +168,8 @@ def main(_):
 
   sess = tf.Session()
   sess.run(init_ops)
-
+  if FLAGS.print_functionname:
+    print("after sess.run(init_ops)")
   run = True
   ep_num = 0
   prev_logging_time = time.time()
@@ -172,7 +184,8 @@ def main(_):
     baselines = []
     read_infos = []
 
-    for _ in range(ep_length):
+    for tt in range(ep_length):
+      #print("tt in ep_length",tt)
       step_feed = {reward_ph: reward, observation_ph: observation}
       for ph, ar in zip(nest.flatten(state_ph), nest.flatten(agent_state)):
         step_feed[ph] = ar
@@ -199,7 +212,8 @@ def main(_):
     actions = np.array(actions)
     baselines = np.array(baselines)
     read_infos = nest_utils.nest_stack(read_infos)
-
+    print("observations",observation.shape)
+    print("baselines",baselines.shape)
     # Compute TVT rewards.
     if FLAGS.do_tvt:
       tvt_rewards = tvt_module.compute_tvt_rewards(read_infos,
@@ -215,7 +229,7 @@ def main(_):
                  tvt_rewards_ph: tvt_rewards}
     ep_loss, _, ep_loss_logs = sess.run([loss, update_op, loss_logs],
                                         feed_dict=loss_feed)
-
+    print("logging_frequency",FLAGS.logging_frequency)
     # Log episode results.
     if ep_num % FLAGS.logging_frequency == 0:
       steps_per_second = (
@@ -255,4 +269,5 @@ def main(_):
 
 
 if __name__ == '__main__':
+  print("0000000000000000000000000")
   app.run(main)
