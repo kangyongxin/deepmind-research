@@ -140,6 +140,7 @@ core_outputs, next_core_state = self._core(features, prev_state.core_state)
 
 core_outputs = [ z, read_info, poliy, action, baseline]
 h_next = ['controller_outputs', 'h_controller']+['memory', 'mem_reads', 'h_mem_writer']
+
 1.2.1 
 构造的状态z 包含三个部分： 特征features，上一个隐含变量h_prev.controller_outputs，上一次记忆h_prev.mem_reads。并进行了一次mlp编码。
 
